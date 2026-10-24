@@ -1,0 +1,16 @@
+{
+  "updatedAt": null,
+  "summary": "尚未运行自动更新。在 Actions 中手动触发一次 “Daily update” 即可生成首批数据。",
+  "version": {
+    "current": null,
+    "name": null,
+    "startDate": null,
+    "endDate": null,
+    "highlights": [],
+    "next": null
+  },
+  "banners": [],
+  "events": [],
+  "news": [],
+  "sources": []
+}

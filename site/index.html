@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Genshin Radar</title>
+<meta name="description" content="每日自动更新的原神版本、卡池、活动与公告速览">
+<style>
+  :root {
+    --bg: #f6f5f1; --card: #ffffff; --text: #1d1d1f; --muted: #6b6b72;
+    --line: #e4e2dc; --accent: #b0832f; --accent-soft: #f3e9d4;
+    --live: #2f8a57; --soon: #3a6fb0; --ended: #9a9aa0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121317; --card: #1b1d23; --text: #ecebe8; --muted: #9b9ca3;
+      --line: #2b2e36; --accent: #d9b064; --accent-soft: #2e2818;
+      --live: #5cc28a; --soon: #7aa7e0; --ended: #6c6d73;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.6 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  main { max-width: 960px; margin: 0 auto; padding: 24px 16px 64px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; }
+  h1 { margin: 0; font-size: 26px; letter-spacing: .02em; }
+  h1 span { color: var(--accent); }
+  h2 { font-size: 17px; margin: 32px 0 12px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .summary {
+    margin-top: 16px; padding: 12px 16px; border-radius: 10px;
+    background: var(--accent-soft); border-left: 3px solid var(--accent);
+  }
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .card h3 { margin: 0 0 4px; font-size: 15px; }
+  .card a { color: inherit; }
+  .version { display: flex; flex-wrap: wrap; gap: 16px 32px; }
+  .version .big { font-size: 34px; font-weight: 700; color: var(--accent); line-height: 1.1; }
+  ul { margin: 6px 0 0; padding-left: 18px; }
+  .tag {
+    display: inline-block; font-size: 12px; padding: 0 8px; border-radius: 99px;
+    border: 1px solid currentColor; margin-right: 6px; vertical-align: 1px;
+  }
+  .live { color: var(--live); } .soon { color: var(--soon); } .ended { color: var(--ended); }
+  .five { color: var(--accent); font-weight: 600; }
+  .news li { margin-bottom: 8px; }
+  .empty { color: var(--muted); font-style: italic; }
+  footer { margin-top: 40px; font-size: 12px; color: var(--muted); word-break: break-all; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Genshin <span>Radar</span></h1>
+    <div class="muted" id="updated">加载中…</div>
+  </header>
+  <div class="summary" id="summary" hidden></div>
+
+  <h2>当前版本</h2>
+  <div class="card" id="version"></div>
+
+  <h2>祈愿卡池</h2>
+  <div class="grid" id="banners"></div>
+
+  <h2>活动</h2>
+  <div class="grid" id="events"></div>
+
+  <h2>最新公告</h2>
+  <div class="card"><ul class="news" id="news"></ul></div>
+
+  <footer id="sources"></footer>
+</main>
+<script>
+// 游戏时间以亚服 / 国服为准
+const TZ = "Asia/Shanghai";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const safeUrl = (u) => (typeof u === "string" && u.startsWith("https://") ? u : null);
+const link = (text, url) => safeUrl(url) ? `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(text)}</a>` : esc(text);
+const fmt = (d) => d ? new Date(d).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric", timeZone: TZ }) : "?";
+const empty = (msg) => `<div class="empty">${msg}</div>`;
+const BANNER_TYPE = { character: "角色", weapon: "武器", chronicled: "集录" };
+
+function status(start, end) {
+  const now = Date.now();
+  if (end && new Date(end) < now) return ["ended", "已结束"];
+  if (start && new Date(start) > now) {
+    const days = Math.ceil((new Date(start) - now) / 864e5);
+    return ["soon", `${days} 天后开始`];
+  }
+  if (end) {
+    const days = Math.ceil((new Date(end) - now) / 864e5);
+    return ["live", `剩余 ${days} 天`];
+  }
+  return ["live", "进行中"];
+}
+
+function render(d) {
+  $("updated").textContent = d.updatedAt
+    ? "更新于 " + new Date(d.updatedAt).toLocaleString("zh-CN", { hour12: false, timeZone: TZ }) + "（北京时间）"
+    : "尚未更新";
+  if (d.summary) { $("summary").textContent = d.summary; $("summary").hidden = false; }
+
+  const v = d.version || {};
+  const next = v.next;
+  $("version").innerHTML = v.current ? `
+    <div class="version">
+      <div>
+        <div class="big">${esc(v.current)}</div>
+        <div>${esc(v.name || "")}</div>
+        <div class="muted">${fmt(v.startDate)} – ${fmt(v.endDate)}</div>
+      </div>
+      <div style="flex:1;min-width:220px">
+        ${(v.highlights || []).length ? `<ul>${v.highlights.map((h) => `<li>${esc(h)}</li>`).join("")}</ul>` : ""}
+      </div>
+    </div>
+    ${next ? `<p class="muted" style="margin-bottom:0">下个版本 ${esc(next.version || "")}：
+      ${next.livestreamDate ? `前瞻直播 ${fmt(next.livestreamDate)}，` : ""}
+      ${next.startDate ? `预计 ${fmt(next.startDate)} 上线` : ""}
+      ${next.note ? `· ${esc(next.note)}` : ""}</p>` : ""}
+  ` : empty("暂无版本信息");
+
+  const banners = d.banners || [];
+  $("banners").innerHTML = banners.length ? banners.map((b) => {
+    const [cls, label] = status(b.startDate, b.endDate);
+    return `<div class="card">
+      <h3><span class="tag ${cls}">${label}</span>${link(b.name || BANNER_TYPE[b.type] + "祈愿", b.url)}</h3>
+      <div class="muted">${BANNER_TYPE[b.type] || ""}${b.phase ? ` · 第 ${esc(b.phase)} 期` : ""} · ${fmt(b.startDate)} – ${fmt(b.endDate)}</div>
+      ${(b.featured5 || []).length ? `<div>★5 <span class="five">${b.featured5.map(esc).join("、")}</span></div>` : ""}
+      ${(b.featured4 || []).length ? `<div class="muted">★4 ${b.featured4.map(esc).join("、")}</div>` : ""}
+    </div>`;
+  }).join("") : empty("暂无卡池信息");
+
+  const events = d.events || [];
+  $("events").innerHTML = events.length ? events.map((e) => {
+    const [cls, label] = status(e.startDate, e.endDate);
+    return `<div class="card">
+      <h3><span class="tag ${cls}">${label}</span>${link(e.name, e.url)}</h3>
+      <div class="muted">${fmt(e.startDate)} – ${fmt(e.endDate)}</div>
+      ${e.rewards ? `<div>${esc(e.rewards)}</div>` : ""}
+    </div>`;
+  }).join("") : empty("暂无活动信息");
+
+  const news = d.news || [];
+  $("news").innerHTML = news.length ? news.map((n) => `<li>
+      <span class="muted">${esc(n.date || "")}</span> ${link(n.title, n.url)}
+      ${n.summary ? `<div class="muted">${esc(n.summary)}</div>` : ""}
+    </li>`).join("") : `<li class="empty">暂无公告</li>`;
+
+  const sources = (d.sources || []).map(safeUrl).filter(Boolean);
+  $("sources").innerHTML = "数据由 OpenCode 每日自动检索整理，可能存在误差，请以游戏内公告为准。"
+    + (sources.length ? `<br>来源：${sources.map((s) => link(s, s)).join(" · ")}` : "");
+}
+
+fetch("data.json", { cache: "no-store" })
+  .then((r) => r.json())
+  .then(render)
+  .catch((e) => { $("updated").textContent = "数据加载失败：" + e.message; });
+</script>
+</body>
+</html>
